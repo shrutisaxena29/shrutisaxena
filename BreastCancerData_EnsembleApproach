@@ -1,0 +1,169 @@
+---
+title: "Saxena_Shruti_ProjectTwo"
+author: "Shruti Saxena"
+date: "3/9/2021"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(mlbench)
+
+# load the data set
+data(BreastCancer)
+# some algorithms don't like missing values, so remove rows with missing values
+BreastCancer <- na.omit(BreastCancer) 
+# remove the unique identifier, which is useless and would confuse the machine learning algorithms
+BreastCancer$Id <- NULL 
+head(BreastCancer)
+```
+
+ partition the data set for 80% training and 20% evaluation (adapted from ?randomForest)
+
+```{r}
+library(caTools)
+
+set.seed(2)
+
+splitratio = sample.split(BreastCancer, SplitRatio = 0.7)
+train = subset(BreastCancer, splitratio==TRUE)
+test = subset(BreastCancer, splitratio==FALSE)
+dim(BreastCancer)
+print(dim(train)); print(dim(test))
+names(test)[10] <- "Result"
+test$Result <- as.factor(test$Result)
+
+names(test)
+
+names(train)[10] <- "Result"
+train$Result <- as.factor(train$Result)
+
+names(train)
+
+```
+
+```{r SVM}
+
+library(e1071)
+SSsvm <- svm(Result ~ ., train)
+SSsvm.pred <- predict(SSsvm, test)
+SSsvm.table <- table(SSsvm.pred,test$Result)
+
+
+```
+
+
+```{r Naivebayes}
+library(klaR)
+SSnb <- naiveBayes(Result ~ ., train, laplace = 0)
+SSnb.pred <- predict(SSnb,test)
+table(SSnb.pred,test$Result)
+```
+
+
+```{r Neural Network}
+#install.packages("nnet")
+library(nnet)
+SSnnet <- nnet(Result ~ ., train, size=2)
+
+SSnnet.pred <- predict(SSnnet,test,type="class")
+table(SSnnet.pred,test$Result)
+```
+
+```{r Decision Tree}
+library(MASS)
+library(rpart)
+SStree <- rpart(Result ~ ., train)
+plot(SStree); text(SStree) 
+SStree.pred <- predict(SStree,test,type="class")
+table(SStree.pred,test$Result)
+
+
+```
+
+```{r LOOCV}
+library(rpart)
+library(caret)
+ans <- numeric(length(train[,1]))
+for (i in 1:length(train[,1])) {
+  mytree <- rpart(Result ~ ., train[-i,])
+  mytree.predloo <- predict(mytree,train[i,],type="class")
+  ans[i] <- mytree.predloo
+  }
+
+ans <- as.factor(ans)
+ans <- factor(ans, levels=c(1,2),
+  labels=c('benign','malignant'))
+
+ans <- factor(ans,labels=levels(train$Result))
+
+cm <- confusionMatrix(ans,train$Result)
+cm
+
+```
+```{r Quadratic Discriminant Analysis}
+library(MASS)
+library(dplyr)
+
+train.num <- train %>% dplyr::select(-Result) %>% mutate_if(is.factor,as.character)%>% mutate_if(is.character,as.numeric)
+train.num$Result <- train$Result
+test.num <- test%>%dplyr::select(-Result) %>% mutate_if(is.factor,as.character)%>% mutate_if(is.character,as.numeric)
+test.num$Result <- test$Result
+
+ 
+
+SSqda <- qda(Result~., data = train.num) #qda, formula, right hand is non-factor
+SSqda.pred <- predict(SSqda, test.num)$class
+SSqda.prob <- predict(SSqda, test.num)$posterior 
+table(SSqda.pred,test.num$Result)
+
+
+```
+
+```{r Regularised Discriminant Analysis}
+
+library(klaR)
+SSrda <- rda(Result ~ ., train)
+SSrda.pred <- predict(SSrda, train)
+cmrda <- confusionMatrix(SSrda.pred$class,train$Result)
+cmrda
+
+```
+
+```{r Random Forest}
+#install.packages("randomForest")
+library(randomForest)
+SSrf <- randomForest(Result ~ ., train)
+SSrf.pred <- predict(SSrf, test)
+
+table(SSrf.pred, test$Result)
+
+SSrfac <- round(((129 +71) / nrow(test))*100,2)
+```
+"MAJORITY RULE" Ensemble Fashion
+
+```{r}
+require(ROCR)
+
+Ensemble.df <- data.frame(SSsvm.pred,SSnb.pred,SSnnet.pred,SStree.pred,SSrf.pred,Class = test$Result, stringsAsFactors = F)
+
+
+SS.stvm <- svm(Class ~ ., Ensemble.df)
+
+SS.stvm.pred <- predict(SS.stvm, test)
+
+Ens.stvm.table <- table(SS.stvm.pred,test$Result)
+Ens.stvm.table
+##            
+## stvm.pred   benign malignant
+##   benign       128         2
+##   malignant      5        75
+SSaccuracy <- round(((125 +75) / nrow(test))*100,2)
+SSaccuracy
+
+```
